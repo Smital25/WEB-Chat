@@ -165,11 +165,12 @@ async function fetchUrlAsSource(rawUrl: string): Promise<{ source: Source; text:
 }
 
 export async function POST(req: Request) {
-  const { messages, webMode, url } = (await req.json()) as {
-    messages: ChatMessage[];
-    webMode: WebMode;
-    url?: string | null;
-  };
+    const { messages, webMode, url, file } = (await req.json()) as {
+        messages: ChatMessage[];
+        webMode: WebMode;
+        url?: string | null;
+        file?: { name: string; text: string } | null;
+      };
 
   // history the model sees (drop our extra `sources` field)
   const history: ChatCompletionMessageParam[] = messages.map((m) => ({
@@ -187,6 +188,36 @@ export async function POST(req: Request) {
         controller.enqueue(encoder.encode(JSON.stringify(e) + "\n"));
 
       try {
+
+        // ---- chat-with-a-file path ----
+        if (file && file.text) {
+            send({ type: "status", status: "reading" });
+            send({ type: "status", status: "writing" });
+            const finalMessages: ChatCompletionMessageParam[] = [
+              { role: "system", content: SYSTEM_PROMPT },
+              ...history,
+              {
+                role: "system",
+                content:
+                  `The user attached a file named "${file.name}". Base your answer ONLY on its content below.\n\n` +
+                  `${file.text}\n\n` +
+                  `RULES:\n` +
+                  `1. Answer only from the file content above; do not use outside knowledge or invent citations.\n` +
+                  `2. Quote numbers, dates, and names exactly as they appear.\n` +
+                  `3. If the file doesn't answer the question, say so clearly.`,
+              },
+            ];
+            const answer = await llm.chat.completions.create({ model: MODEL, messages: finalMessages, stream: true });
+            let full = "";
+            for await (const chunk of answer) {
+              const delta = chunk.choices[0]?.delta?.content;
+              if (delta) full += delta;
+            }
+            send({ type: "text", text: stripFakeCitations(full, 0) });
+            send({ type: "done", usedWeb: false });
+            controller.close();
+            return;
+          }
         // ---- chat-with-a-URL path: user attached a specific page ----
         if (url) {
           send({ type: "status", status: "searching", query: url });

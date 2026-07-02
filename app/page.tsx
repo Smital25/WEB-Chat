@@ -21,6 +21,8 @@ import {
   Download,
   Link2,
   X,
+  Paperclip,
+  FileText,
 } from "lucide-react";
 import type { ChatMessage, Source, StreamEvent, WebMode } from "@/lib/types";
 import { signOut } from "next-auth/react";
@@ -72,6 +74,11 @@ export default function Home() {
   const [urlDraft, setUrlDraft] = useState("");
   const [attachedUrl, setAttachedUrl] = useState<string | null>(null);
 
+  // ── chat-with-a-file state ──
+  const [attachedFile, setAttachedFile] = useState<{ name: string; text: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
   // ── chat history state ──
   const [chats, setChats] = useState<ChatSummary[]>([]);
   const [activeChatId, setActiveChatId] = useState<string | null>(null);
@@ -83,7 +90,6 @@ export default function Home() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   }, [messages, phase, statusText]);
 
-  // load the chat list once on mount
   useEffect(() => {
     loadChats();
   }, []);
@@ -101,10 +107,11 @@ export default function Home() {
   }
 
   function newChat() {
-    // lazy: no DB row until the first message is sent
     setActiveChatId(null);
     setMessages([]);
     setInput("");
+    setAttachedUrl(null);
+    setAttachedFile(null);
   }
 
   async function renameChat(id: string, current: string) {
@@ -153,15 +160,44 @@ export default function Home() {
     }
   }
 
+  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // allow re-selecting the same file
+    if (!file) return;
+    setUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const res = await fetch("/api/extract", { method: "POST", body: fd });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Couldn't read that file.");
+      } else {
+        setAttachedFile({ name: data.name, text: data.text });
+      }
+    } catch {
+      alert("Upload failed.");
+    } finally {
+      setUploading(false);
+    }
+  }
+
   function stop() {
     abortRef.current?.abort();
   }
 
   async function send(text: string, opts?: { replaceLast?: boolean }) {
     const urlForThisTurn = opts?.replaceLast ? null : attachedUrl;
-    const q = text.trim() || (urlForThisTurn ? "Summarize this page and highlight the key points." : "");
+    const fileForThisTurn = opts?.replaceLast ? null : attachedFile;
+    const q =
+      text.trim() ||
+      (urlForThisTurn ? "Summarize this page and highlight the key points." : "") ||
+      (fileForThisTurn ? "Summarize this file and highlight the key points." : "");
     if (!q || busy) return;
-    if (!opts?.replaceLast) setAttachedUrl(null);
+    if (!opts?.replaceLast) {
+      setAttachedUrl(null);
+      setAttachedFile(null);
+    }
 
     // make sure this conversation has a chat row to save into
     let chatId = activeChatId;
@@ -178,11 +214,8 @@ export default function Home() {
       }
     }
 
-    // base history: for regenerate we drop the previous assistant reply
     const base = opts?.replaceLast ? messages.slice(0, -1) : messages;
-    const nextHistory: ChatMessage[] = opts?.replaceLast
-      ? base
-      : [...base, { role: "user", content: q }];
+    const nextHistory: ChatMessage[] = opts?.replaceLast ? base : [...base, { role: "user", content: q }];
 
     setMessages([...nextHistory, { role: "assistant", content: "" }]);
     setInput("");
@@ -202,7 +235,12 @@ export default function Home() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: nextHistory, webMode: mode, url: urlForThisTurn }),
+        body: JSON.stringify({
+          messages: nextHistory,
+          webMode: mode,
+          url: urlForThisTurn,
+          file: fileForThisTurn,
+        }),
         signal: controller.signal,
       });
       if (!res.body) throw new Error("No response stream");
@@ -237,7 +275,6 @@ export default function Home() {
       abortRef.current = null;
     }
 
-    // persist the assistant reply + refresh the sidebar (title/order)
     if (chatId && finalContent) {
       await saveMessage(chatId, "assistant", finalContent, finalSources);
       loadChats();
@@ -329,6 +366,12 @@ export default function Home() {
   const empty = messages.length === 0;
   const activeMode = MODES.find((x) => x.id === mode)!;
   const modeIndex = MODES.findIndex((x) => x.id === mode);
+
+  const placeholder = attachedFile
+    ? "Ask about this file…"
+    : attachedUrl
+    ? "Ask something about this page…"
+    : "Ask anything…";
 
   return (
     <div className="ec-root relative flex h-screen text-stone-900">
@@ -467,6 +510,20 @@ export default function Home() {
                 </button>
               </div>
             )}
+            {attachedFile && (
+              <div className="mb-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
+                <FileText size={12} className="shrink-0" />
+                <span className="truncate">{attachedFile.name}</span>
+                <button
+                  onClick={() => setAttachedFile(null)}
+                  className="ml-auto shrink-0 rounded p-0.5 hover:bg-amber-100"
+                  aria-label="Remove file"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+            {uploading && <div className="mb-2 text-xs text-stone-400">Reading file…</div>}
             {showUrlInput && (
               <div className="mb-2 flex items-center gap-2">
                 <input
@@ -513,6 +570,23 @@ export default function Home() {
               >
                 <Link2 size={16} />
               </button>
+              <button
+                onClick={() => fileInputRef.current?.click()}
+                title="Attach a file (PDF, Word, text)"
+                aria-label="Attach a file"
+                className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition ${
+                  attachedFile ? "bg-amber-100 text-amber-700" : "text-stone-400 hover:bg-stone-100 hover:text-stone-700"
+                }`}
+              >
+                <Paperclip size={16} />
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".pdf,.docx,.txt,.md,.csv,text/*"
+                onChange={handleFile}
+                className="hidden"
+              />
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -523,12 +597,12 @@ export default function Home() {
                   }
                 }}
                 rows={1}
-                placeholder={attachedUrl ? "Ask something about this page…" : "Ask anything…"}
+                placeholder={placeholder}
                 className="max-h-40 flex-1 resize-none bg-transparent py-1.5 text-[15px] outline-none placeholder:text-stone-400"
               />
               <button
                 onClick={() => (busy ? stop() : send(input))}
-                disabled={!busy && !input.trim() && !attachedUrl}
+                disabled={!busy && !input.trim() && !attachedUrl && !attachedFile}
                 aria-label={busy ? "Stop" : "Send"}
                 className={`ec-send grid h-9 w-9 shrink-0 place-items-center rounded-full text-white transition disabled:opacity-30 ${
                   busy ? "bg-stone-900" : "ec-mark"
