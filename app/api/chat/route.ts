@@ -43,10 +43,100 @@ const searchTool: ChatCompletionTool = {
   },
 };
 
+// ── Chat-with-a-URL helpers ──────────────────────────────────────────────
+// Fetches a single page directly (bypassing search) and turns it into both
+// a Source (for the UI card) and plain text (for the model's context).
+// Self-contained on purpose: it doesn't depend on lib/scrape's internals,
+// which are tuned for search-result pages and may assume a search query.
+
+function decodeHtmlEntities(s: string): string {
+  return s
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#0?39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function extractTextFromHtml(html: string): string {
+  return decodeHtmlEntities(
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<!--[\s\S]*?-->/g, " ")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/gi, " ")
+      .replace(/\s{2,}/g, " ")
+      .trim()
+  );
+}
+
+class FetchUrlError extends Error {}
+
+async function fetchUrlAsSource(rawUrl: string): Promise<{ source: Source; text: string }> {
+  let parsed: URL;
+  try {
+    parsed = new URL(rawUrl);
+  } catch {
+    throw new FetchUrlError("That doesn't look like a valid URL.");
+  }
+  if (!/^https?:$/.test(parsed.protocol)) {
+    throw new FetchUrlError("Only http(s) URLs are supported.");
+  }
+
+  const res = await fetch(parsed.toString(), {
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; WebReaderBot/1.0; +chat-with-url)" },
+    redirect: "follow",
+  });
+  if (!res.ok) {
+    throw new FetchUrlError(`The page returned an error (status ${res.status}).`);
+  }
+  const contentType = res.headers.get("content-type") ?? "";
+  if (!contentType.includes("text/html") && !contentType.includes("text")) {
+    throw new FetchUrlError("That link doesn't point to a readable web page.");
+  }
+
+  const html = await res.text();
+  const titleMatch = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+  const title = titleMatch ? decodeHtmlEntities(titleMatch[1].trim()) : parsed.hostname;
+
+  const descMatch =
+    html.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']*)["']/i) ??
+    html.match(/<meta[^>]+property=["']og:description["'][^>]+content=["']([^"']*)["']/i);
+  const description = descMatch ? decodeHtmlEntities(descMatch[1].trim()) : "";
+
+  const text = extractTextFromHtml(html);
+  const domain = parsed.hostname.replace(/^www\./, "");
+
+  if (text.length < 40) {
+    throw new FetchUrlError("Couldn't extract readable text from that page (it may require JavaScript).");
+  }
+
+  const source: Source = {
+    id: 1,
+    url: parsed.toString(),
+    title: title || domain,
+    domain,
+    favicon: `https://www.google.com/s2/favicons?sz=64&domain=${domain}`,
+    snippet: description || text.slice(0, 220),
+    // NOTE: adjust field names here if lib/credibility's `Credibility` type differs.
+    credibility: {
+      tier: "medium",
+      label: "Direct link",
+      score: 50,
+      reasons: ["Fetched directly from the URL you provided, not independently verified"],
+    },
+  };
+
+  // cap what we send to the model — plenty for a single article/page
+  return { source, text: text.slice(0, 14000) };
+}
+
 export async function POST(req: Request) {
-  const { messages, webMode } = (await req.json()) as {
+  const { messages, webMode, url } = (await req.json()) as {
     messages: ChatMessage[];
     webMode: WebMode;
+    url?: string | null;
   };
 
   // history the model sees (drop our extra `sources` field)
@@ -65,6 +155,58 @@ export async function POST(req: Request) {
         controller.enqueue(encoder.encode(JSON.stringify(e) + "\n"));
 
       try {
+        // ---- chat-with-a-URL path: user attached a specific page ----
+        if (url) {
+          send({ type: "status", status: "searching", query: url });
+
+          let fetched;
+          try {
+            fetched = await fetchUrlAsSource(url);
+          } catch (err) {
+            const msg = err instanceof FetchUrlError ? err.message : "Couldn't read that URL.";
+            send({ type: "text", text: msg });
+            send({ type: "done", usedWeb: false });
+            controller.close();
+            return;
+          }
+
+          const { source, text } = fetched;
+          send({ type: "sources", sources: [source] });
+          send({ type: "status", status: "reading" });
+          send({ type: "status", status: "writing" });
+
+          const finalMessages: ChatCompletionMessageParam[] = [
+            { role: "system", content: SYSTEM_PROMPT },
+            ...history,
+            {
+              role: "system",
+              content:
+                `The user attached one specific page. Base your answer ONLY on its content below.\n\n` +
+                `[1] ${source.title} (${source.url})\n${text}\n\n` +
+                `RULES:\n` +
+                `1. Cite with [1] when referencing this page. Never invent other sources or write out URLs yourself.\n` +
+                `2. State a number, date, or statistic ONLY if it literally appears above, quoted EXACTLY.\n` +
+                `3. If the user's question isn't answered by this page, say so clearly — do not guess or use outside knowledge.\n` +
+                `4. Use only the page content above, not your own memory.`,
+            },
+          ];
+
+          const answer = await llm.chat.completions.create({
+            model: MODEL,
+            messages: finalMessages,
+            stream: true,
+          });
+          let full = "";
+          for await (const chunk of answer) {
+            const delta = chunk.choices[0]?.delta?.content;
+            if (delta) full += delta;
+          }
+          send({ type: "text", text: stripFakeCitations(full, 1) });
+          send({ type: "done", usedWeb: true });
+          controller.close();
+          return;
+        }
+
         let searchQuery: string | null = null;
 
         // ---- decide whether to search, based on the mode ----
@@ -74,27 +216,26 @@ export async function POST(req: Request) {
           searchQuery = lastUser;
         } else {
           // auto: let the model decide via tool calling (one non-streaming call)
-// auto: let the model decide via tool calling (one non-streaming call)
-        let decision;
-        try {
-        decision = await llm.chat.completions.create({
-            model: MODEL,
-            messages: [{ role: "system", content: SYSTEM_PROMPT }, ...history],
-            tools: [searchTool],
-            tool_choice: "auto",
-        });
-        } catch {
-        // model couldn't format a tool call — answer directly, no search
-        const resp = await llm.chat.completions.create({
-            model: MODEL,
-            messages: [{ role: "system", content: SYSTEM_PROMPT }, ...history],
-        });
-        send({ type: "text", text: stripFakeCitations(resp.choices[0]?.message?.content ?? "", 0) });
-        send({ type: "done", usedWeb: false });
-        controller.close();
-        return;
-        }
-        const msg = decision.choices[0].message;
+          let decision;
+          try {
+            decision = await llm.chat.completions.create({
+              model: MODEL,
+              messages: [{ role: "system", content: SYSTEM_PROMPT }, ...history],
+              tools: [searchTool],
+              tool_choice: "auto",
+            });
+          } catch {
+            // model couldn't format a tool call — answer directly, no search
+            const resp = await llm.chat.completions.create({
+              model: MODEL,
+              messages: [{ role: "system", content: SYSTEM_PROMPT }, ...history],
+            });
+            send({ type: "text", text: stripFakeCitations(resp.choices[0]?.message?.content ?? "", 0) });
+            send({ type: "done", usedWeb: false });
+            controller.close();
+            return;
+          }
+          const msg = decision.choices[0].message;
           const call = msg.tool_calls?.[0];
           if (call) {
             try {

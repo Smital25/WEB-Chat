@@ -19,6 +19,8 @@ import {
   Copy,
   RotateCcw,
   Download,
+  Link2,
+  X,
 } from "lucide-react";
 import type { ChatMessage, Source, StreamEvent, WebMode } from "@/lib/types";
 import { signOut } from "next-auth/react";
@@ -64,6 +66,11 @@ export default function Home() {
   const [statusText, setStatusText] = useState("");
   const [hoverCite, setHoverCite] = useState<number | null>(null);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+
+  // ── chat-with-a-URL state ──
+  const [showUrlInput, setShowUrlInput] = useState(false);
+  const [urlDraft, setUrlDraft] = useState("");
+  const [attachedUrl, setAttachedUrl] = useState<string | null>(null);
 
   // ── chat history state ──
   const [chats, setChats] = useState<ChatSummary[]>([]);
@@ -151,8 +158,10 @@ export default function Home() {
   }
 
   async function send(text: string, opts?: { replaceLast?: boolean }) {
-    const q = text.trim();
+    const urlForThisTurn = opts?.replaceLast ? null : attachedUrl;
+    const q = text.trim() || (urlForThisTurn ? "Summarize this page and highlight the key points." : "");
     if (!q || busy) return;
+    if (!opts?.replaceLast) setAttachedUrl(null);
 
     // make sure this conversation has a chat row to save into
     let chatId = activeChatId;
@@ -193,7 +202,7 @@ export default function Home() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: nextHistory, webMode: mode }),
+        body: JSON.stringify({ messages: nextHistory, webMode: mode, url: urlForThisTurn }),
         signal: controller.signal,
       });
       if (!res.body) throw new Error("No response stream");
@@ -441,7 +450,65 @@ export default function Home() {
         {/* composer */}
         <div className="ec-glass border-t border-stone-200/70 px-5 py-3">
           <div className="mx-auto max-w-3xl">
+            {attachedUrl && (
+              <div className="mb-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
+                <Link2 size={12} className="shrink-0" />
+                <span className="truncate">{attachedUrl}</span>
+                <button
+                  onClick={() => setAttachedUrl(null)}
+                  className="ml-auto shrink-0 rounded p-0.5 hover:bg-amber-100"
+                  aria-label="Remove attached URL"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            )}
+            {showUrlInput && (
+              <div className="mb-2 flex items-center gap-2">
+                <input
+                  autoFocus
+                  value={urlDraft}
+                  onChange={(e) => setUrlDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const trimmed = urlDraft.trim();
+                      if (trimmed) {
+                        setAttachedUrl(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
+                      }
+                      setUrlDraft("");
+                      setShowUrlInput(false);
+                    } else if (e.key === "Escape") {
+                      setUrlDraft("");
+                      setShowUrlInput(false);
+                    }
+                  }}
+                  placeholder="Paste a URL and press Enter…"
+                  className="ec-input flex-1 rounded-xl border border-stone-300 bg-white px-3 py-1.5 text-[13px] outline-none placeholder:text-stone-400"
+                />
+                <button
+                  onClick={() => {
+                    setUrlDraft("");
+                    setShowUrlInput(false);
+                  }}
+                  className="rounded p-1 text-stone-400 hover:text-stone-700"
+                  aria-label="Cancel"
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            )}
             <div className="ec-input flex items-end gap-2 rounded-2xl border border-stone-300 bg-white px-3 py-2">
+              <button
+                onClick={() => setShowUrlInput((v) => !v)}
+                title="Chat with a URL"
+                aria-label="Attach a URL"
+                className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition ${
+                  attachedUrl ? "bg-amber-100 text-amber-700" : "text-stone-400 hover:bg-stone-100 hover:text-stone-700"
+                }`}
+              >
+                <Link2 size={16} />
+              </button>
               <textarea
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -452,12 +519,12 @@ export default function Home() {
                   }
                 }}
                 rows={1}
-                placeholder="Ask anything…"
+                placeholder={attachedUrl ? "Ask something about this page…" : "Ask anything…"}
                 className="max-h-40 flex-1 resize-none bg-transparent py-1.5 text-[15px] outline-none placeholder:text-stone-400"
               />
               <button
                 onClick={() => (busy ? stop() : send(input))}
-                disabled={!busy && !input.trim()}
+                disabled={!busy && !input.trim() && !attachedUrl}
                 aria-label={busy ? "Stop" : "Send"}
                 className={`ec-send grid h-9 w-9 shrink-0 place-items-center rounded-full text-white transition disabled:opacity-30 ${
                   busy ? "bg-stone-900" : "ec-mark"
