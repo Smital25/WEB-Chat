@@ -23,6 +23,7 @@ import {
   X,
   Paperclip,
   FileText,
+  Mic, MicOff,
 } from "lucide-react";
 import type { ChatMessage, Source, StreamEvent, WebMode } from "@/lib/types";
 import { signOut } from "next-auth/react";
@@ -85,6 +86,10 @@ export default function Home() {
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
+
+  // ── voice recognition state ──
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -158,6 +163,44 @@ export default function Home() {
     } catch {
       /* ignore */
     }
+  }
+
+  function toggleVoice() {
+    // browser support check
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert("Voice input isn't supported in this browser. Try Chrome or Edge.");
+      return;
+    }
+
+    // if already listening, stop
+    if (listening) {
+      recognitionRef.current?.stop();
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.lang = "en-US";
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    let finalText = "";
+    recognition.onresult = (event: any) => {
+      let interim = "";
+      for (let i = event.resultIndex; i < event.results.length; i++) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) finalText += transcript;
+        else interim += transcript;
+      }
+      setInput((finalText + interim).trim());
+    };
+    recognition.onerror = () => setListening(false);
+    recognition.onend = () => setListening(false);
+
+    recognitionRef.current = recognition;
+    recognition.start();
+    setListening(true);
   }
 
   async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
@@ -580,6 +623,18 @@ export default function Home() {
               >
                 <Paperclip size={16} />
               </button>
+              <button
+                onClick={toggleVoice}
+                title={listening ? "Stop listening" : "Speak your question"}
+                aria-label="Voice input"
+                className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition ${
+                  listening
+                    ? "bg-rose-100 text-rose-600 ec-pulse-mic"
+                    : "text-stone-400 hover:bg-stone-100 hover:text-stone-700"
+                }`}
+              >
+                {listening ? <MicOff size={16} /> : <Mic size={16} />}
+              </button>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -937,6 +992,8 @@ function EmptyState({ onPick }: { onPick: (t: string) => void }) {
 function StyleBlock() {
   return (
     <style>{`
+      .ec-pulse-mic { animation: ecPulse 1.2s ease-in-out infinite; }
+      @keyframes ecPulse { 0%,100%{ box-shadow:0 0 0 4px rgba(245,158,11,.16);} 50%{ box-shadow:0 0 0 7px rgba(245,158,11,.05);} }
       .ec-root { background:
         radial-gradient(60% 40% at 15% 0%, rgba(251,191,36,0.10), transparent 60%),
         radial-gradient(50% 40% at 90% 5%, rgba(244,114,60,0.08), transparent 60%),
