@@ -17,7 +17,8 @@ export interface Source {
 export interface ChatMessage {
   role: ChatRole;
   content: string;
-  sources?: Source[]; // only present on assistant messages that used the web
+  sources?: Source[];   // only present on assistant messages that used the web
+  followups?: string[]; // 2-3 suggested follow-up questions, assistant messages only
 }
 
 // Streamed events the API sends back (one JSON object per line, NDJSON).
@@ -25,5 +26,6 @@ export type StreamEvent =
   | { type: "status"; status: "searching" | "reading" | "writing" | "done"; query?: string }
   | { type: "sources"; sources: Source[] }
   | { type: "text"; text: string }
+  | { type: "followups"; questions: string[] }
   | { type: "done"; usedWeb: boolean }
   | { type: "error"; message: string };

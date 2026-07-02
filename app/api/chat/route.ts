@@ -73,6 +73,38 @@ function extractTextFromHtml(html: string): string {
 
 class FetchUrlError extends Error {}
 
+// Fires one small extra LLM call after an answer to suggest 2-3 natural
+// follow-up questions. Best-effort: any failure just yields no suggestions
+// rather than breaking the response.
+async function generateFollowups(question: string, answer: string): Promise<string[]> {
+  if (!answer || answer.trim().length < 20) return [];
+  try {
+    const resp = await llm.chat.completions.create({
+      model: MODEL,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Given a user's question and the assistant's answer, suggest exactly 3 short, " +
+            "natural follow-up questions the user might ask next. Keep each under 12 words. " +
+            'Respond with ONLY a JSON array of 3 strings, nothing else — e.g. ["...", "...", "..."].',
+        },
+        {
+          role: "user",
+          content: `Question: ${question}\n\nAnswer: ${answer.slice(0, 4000)}`,
+        },
+      ],
+    });
+    const raw = resp.choices[0]?.message?.content ?? "[]";
+    const cleaned = raw.replace(/```json/gi, "").replace(/```/g, "").trim();
+    const parsed = JSON.parse(cleaned);
+    if (!Array.isArray(parsed)) return [];
+    return parsed.filter((q): q is string => typeof q === "string" && q.trim().length > 0).slice(0, 3);
+  } catch {
+    return [];
+  }
+}
+
 async function fetchUrlAsSource(rawUrl: string): Promise<{ source: Source; text: string }> {
   let parsed: URL;
   try {
@@ -202,6 +234,8 @@ export async function POST(req: Request) {
             if (delta) full += delta;
           }
           send({ type: "text", text: stripFakeCitations(full, 1) });
+          const followups = await generateFollowups(lastUser, full);
+          if (followups.length > 0) send({ type: "followups", questions: followups });
           send({ type: "done", usedWeb: true });
           controller.close();
           return;
@@ -230,7 +264,10 @@ export async function POST(req: Request) {
               model: MODEL,
               messages: [{ role: "system", content: SYSTEM_PROMPT }, ...history],
             });
-            send({ type: "text", text: stripFakeCitations(resp.choices[0]?.message?.content ?? "", 0) });
+            const directText = stripFakeCitations(resp.choices[0]?.message?.content ?? "", 0);
+            send({ type: "text", text: directText });
+            const followups = await generateFollowups(lastUser, directText);
+            if (followups.length > 0) send({ type: "followups", questions: followups });
             send({ type: "done", usedWeb: false });
             controller.close();
             return;
@@ -245,7 +282,10 @@ export async function POST(req: Request) {
             }
           } else {
             // model answered directly — no web, so no citations allowed
-            send({ type: "text", text: stripFakeCitations(msg.content ?? "", 0) });
+            const directText = stripFakeCitations(msg.content ?? "", 0);
+            send({ type: "text", text: directText });
+            const followups = await generateFollowups(lastUser, directText);
+            if (followups.length > 0) send({ type: "followups", questions: followups });
             send({ type: "done", usedWeb: false });
             controller.close();
             return;
@@ -271,6 +311,8 @@ export async function POST(req: Request) {
           });
           const text = stripFakeCitations(resp.choices[0]?.message?.content ?? "", 0);
           send({ type: "text", text });
+          const followups = await generateFollowups(lastUser, text);
+          if (followups.length > 0) send({ type: "followups", questions: followups });
           send({ type: "done", usedWeb: false });
           controller.close();
           return;
@@ -327,6 +369,9 @@ export async function POST(req: Request) {
           if (delta) full += delta;
         }
         send({ type: "text", text: stripFakeCitations(full, sources.length) });
+
+        const followups = await generateFollowups(lastUser, full);
+        if (followups.length > 0) send({ type: "followups", questions: followups });
 
         send({ type: "done", usedWeb: true });
         controller.close();

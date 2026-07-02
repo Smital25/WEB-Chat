@@ -304,6 +304,9 @@ export default function Home() {
       case "sources":
         patchLast((m) => ({ ...m, sources: evt.sources }));
         break;
+      case "followups":
+        patchLast((m) => ({ ...m, followups: evt.questions }));
+        break;
       case "text":
         patchLast((m) => ({ ...m, content: m.content + evt.text }));
         break;
@@ -437,6 +440,7 @@ export default function Home() {
                         onCopy={copyMessage}
                         copied={copiedIdx === i}
                         onRegenerate={regenerate}
+                        onFollowup={send}
                       />
                       {isLast && busy && <Pipeline phase={phase} statusText={statusText} onStop={stop} />}
                     </div>
@@ -638,6 +642,7 @@ function MessageBubble({
   onCopy,
   copied,
   onRegenerate,
+  onFollowup,
 }: {
   m: ChatMessage;
   idx: number;
@@ -647,6 +652,7 @@ function MessageBubble({
   onCopy: (content: string, idx: number) => void;
   copied: boolean;
   onRegenerate: () => void;
+  onFollowup: (text: string) => void;
 }) {
   if (m.role === "user") {
     return (
@@ -682,6 +688,19 @@ function MessageBubble({
       )}
       {m.sources && m.sources.length > 0 && (
         <SourceList sources={m.sources} hoverCite={hoverCite} setHoverCite={setHoverCite} />
+      )}
+      {isLastAssistant && m.followups && m.followups.length > 0 && (
+        <div className="flex flex-wrap gap-2 pl-4">
+          {m.followups.map((q, i) => (
+            <button
+              key={i}
+              onClick={() => onFollowup(q)}
+              className="ec-followup rounded-full border border-stone-200 bg-white/70 px-3 py-1.5 text-xs text-stone-600 transition-colors hover:border-amber-400 hover:text-stone-900"
+            >
+              {q}
+            </button>
+          ))}
+        </div>
       )}
     </div>
   );
