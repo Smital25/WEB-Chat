@@ -24,6 +24,8 @@ import {
   Paperclip,
   FileText,
   Mic, MicOff,
+  Image as ImageIcon,
+
 } from "lucide-react";
 import type { ChatMessage, Source, StreamEvent, WebMode } from "@/lib/types";
 import { signOut } from "next-auth/react";
@@ -90,6 +92,9 @@ export default function Home() {
   // ── voice recognition state ──
   const [listening, setListening] = useState(false);
   const recognitionRef = useRef<any>(null);
+
+  // ── image generation state ──
+  const [imageMode, setImageMode] = useState(false);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -222,6 +227,42 @@ export default function Home() {
       alert("Upload failed.");
     } finally {
       setUploading(false);
+    }
+  }
+
+  async function generateImage(prompt: string) {
+    const q = prompt.trim();
+    if (!q || busy) return;
+    let chatId = activeChatId;
+    if (!chatId) {
+      try {
+        const r = await fetch("/api/chats", { method: "POST" });
+        if (r.ok) { const d = await r.json(); chatId = d.chat.id as string; setActiveChatId(chatId); }
+      } catch { /* ignore */ }
+    }
+    const nextHistory: ChatMessage[] = [...messages, { role: "user", content: q }];
+    setMessages([...nextHistory, { role: "assistant", content: "🎨 Generating image…" }]);
+    setInput("");
+    setBusy(true);
+    if (chatId) saveMessage(chatId, "user", q);
+    try {
+      const res = await fetch("/api/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: q }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        patchLast((m) => ({ ...m, content: `⚠️ ${data.error}` }));
+      } else {
+        patchLast((m) => ({ ...m, content: `![${q}](${data.image})` }));
+        if (chatId) saveMessage(chatId, "assistant", `![${q}](${data.image})`);
+        loadChats();
+      }
+    } catch (err) {
+      patchLast((m) => ({ ...m, content: `⚠️ ${(err as Error).message}` }));
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -410,7 +451,9 @@ export default function Home() {
   const activeMode = MODES.find((x) => x.id === mode)!;
   const modeIndex = MODES.findIndex((x) => x.id === mode);
 
-  const placeholder = attachedFile
+  const placeholder = imageMode
+    ? "Describe an image to generate…"
+    : attachedFile
     ? "Ask about this file…"
     : attachedUrl
     ? "Ask something about this page…"
@@ -577,6 +620,7 @@ export default function Home() {
                     if (e.key === "Enter") {
                       e.preventDefault();
                       const trimmed = urlDraft.trim();
+                      
                       if (trimmed) {
                         setAttachedUrl(/^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
                       }
@@ -635,6 +679,18 @@ export default function Home() {
               >
                 {listening ? <MicOff size={16} /> : <Mic size={16} />}
               </button>
+              <button
+                onClick={() => setImageMode((v) => !v)}
+                title="Image mode — generate a picture"
+                aria-label="Image mode"
+                className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition ${
+                  imageMode
+                    ? "bg-amber-100 text-amber-700"
+                    : "text-stone-400 hover:bg-stone-100 hover:text-stone-700"
+                }`}
+              >
+                <ImageIcon size={16} />
+              </button>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -648,7 +704,7 @@ export default function Home() {
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    send(input);
+                    imageMode ? generateImage(input) : send(input);
                   }
                 }}
                 rows={1}
@@ -656,7 +712,7 @@ export default function Home() {
                 className="max-h-40 flex-1 resize-none bg-transparent py-1.5 text-[15px] outline-none placeholder:text-stone-400"
               />
               <button
-                onClick={() => (busy ? stop() : send(input))}
+                onClick={() => (busy ? stop() : imageMode ? generateImage(input) : (send(input)))}
                 disabled={!busy && !input.trim() && !attachedUrl && !attachedFile}
                 aria-label={busy ? "Stop" : "Send"}
                 className={`ec-send grid h-9 w-9 shrink-0 place-items-center rounded-full text-white transition disabled:opacity-30 ${
@@ -795,9 +851,18 @@ function MessageBubble({
   return (
     <div className="space-y-4">
       {m.content && (
-        <div className="ec-fade max-w-[95%] border-l-2 border-amber-200 pl-4 font-serif text-[16px] leading-[1.7] text-stone-800">
-          {renderWithCitations(m.content, m.sources, hoverCite, setHoverCite)}
-        </div>
+        m.content.startsWith("![") && m.content.includes("(data:image") ? (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img
+            src={m.content.match(/\((data:image[^)]+)\)/)?.[1] || ""}
+            alt="Generated image"
+            className="ec-fade max-w-full rounded-xl border border-stone-200 shadow-sm"
+          />
+        ) : (
+          <div className="ec-fade max-w-[95%] border-l-2 border-amber-200 pl-4 font-serif text-[16px] leading-[1.7] text-stone-800">
+            {renderWithCitations(m.content, m.sources, hoverCite, setHoverCite)}
+          </div>
+        )
       )}
       {m.content && (
         <div className="flex items-center gap-3 pl-4 text-xs text-stone-400">

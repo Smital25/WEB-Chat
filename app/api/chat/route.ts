@@ -175,7 +175,10 @@ export async function POST(req: Request) {
   // history the model sees (drop our extra `sources` field)
   const history: ChatCompletionMessageParam[] = messages.map((m) => ({
     role: m.role,
-    content: m.content,
+    content:
+      m.content.startsWith("![") && m.content.includes("(data:image")
+        ? "[image]"
+        : m.content,
   }));
   const lastUser =
     [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
