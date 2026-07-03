@@ -40,7 +40,6 @@ const EXAMPLES = [
 const MODES: { id: WebMode; label: string; icon: React.ReactNode; hint: string }[] = [
   { id: "auto", label: "Auto", icon: <Sparkles size={13} />, hint: "Search only when needed" },
   { id: "force", label: "Web", icon: <Globe size={13} />, hint: "Always search the web" },
-  { id: "off", label: "Off", icon: <Ban size={13} />, hint: "Never search" },
 ];
 
 type Phase = "idle" | "searching" | "reading" | "writing";
@@ -487,7 +486,7 @@ export default function Home() {
               <div
                 key={c.id}
                 className={`group mb-1 flex items-center gap-1 rounded-lg pr-1 text-sm transition-colors ${
-                  activeChatId === c.id ? "bg-amber-100 text-stone-900" : "text-stone-600 hover:bg-stone-100"
+                  activeChatId === c.id ? "bg-orange-100 text-stone-900" : "text-stone-600 hover:bg-stone-100"
                 }`}
               >
                 <button
@@ -584,12 +583,12 @@ export default function Home() {
         <div className="ec-glass border-t border-stone-200/70 px-5 py-3">
           <div className="mx-auto max-w-3xl">
             {attachedUrl && (
-              <div className="mb-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
+              <div className="mb-2 flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs text-orange-800">
                 <Link2 size={12} className="shrink-0" />
                 <span className="truncate">{attachedUrl}</span>
                 <button
                   onClick={() => setAttachedUrl(null)}
-                  className="ml-auto shrink-0 rounded p-0.5 hover:bg-amber-100"
+                  className="ml-auto shrink-0 rounded p-0.5 hover:bg-orange-100"
                   aria-label="Remove attached URL"
                 >
                   <X size={12} />
@@ -597,12 +596,12 @@ export default function Home() {
               </div>
             )}
             {attachedFile && (
-              <div className="mb-2 flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-800">
+              <div className="mb-2 flex items-center gap-2 rounded-lg border border-orange-200 bg-orange-50 px-3 py-1.5 text-xs text-orange-800">
                 <FileText size={12} className="shrink-0" />
                 <span className="truncate">{attachedFile.name}</span>
                 <button
                   onClick={() => setAttachedFile(null)}
-                  className="ml-auto shrink-0 rounded p-0.5 hover:bg-amber-100"
+                  className="ml-auto shrink-0 rounded p-0.5 hover:bg-orange-100"
                   aria-label="Remove file"
                 >
                   <X size={12} />
@@ -652,7 +651,7 @@ export default function Home() {
                 title="Chat with a URL"
                 aria-label="Attach a URL"
                 className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition ${
-                  attachedUrl ? "bg-amber-100 text-amber-700" : "text-stone-400 hover:bg-stone-100 hover:text-stone-700"
+                  attachedUrl ? "bg-orange-100 text-orange-700" : "text-stone-400 hover:bg-stone-100 hover:text-stone-700"
                 }`}
               >
                 <Link2 size={16} />
@@ -662,7 +661,7 @@ export default function Home() {
                 title="Attach a file (PDF, Word, text)"
                 aria-label="Attach a file"
                 className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition ${
-                  attachedFile ? "bg-amber-100 text-amber-700" : "text-stone-400 hover:bg-stone-100 hover:text-stone-700"
+                  attachedFile ? "bg-orange-100 text-orange-700" : "text-stone-400 hover:bg-stone-100 hover:text-stone-700"
                 }`}
               >
                 <Paperclip size={16} />
@@ -685,7 +684,7 @@ export default function Home() {
                 aria-label="Image mode"
                 className={`grid h-8 w-8 shrink-0 place-items-center rounded-full transition ${
                   imageMode
-                    ? "bg-amber-100 text-amber-700"
+                    ? "bg-orange-100 text-orange-700"
                     : "text-stone-400 hover:bg-stone-100 hover:text-stone-700"
                 }`}
               >
@@ -775,13 +774,13 @@ function Pipeline({ phase, statusText, onStop }: { phase: Phase; statusText: str
                       done
                         ? "ec-mark border-transparent text-white"
                         : active
-                        ? "ec-stage-active border-amber-500 text-amber-700"
+                        ? "ec-stage-active border-orange-500 text-orange-700"
                         : "border-stone-200 bg-white text-stone-300"
                     }`}
                   >
                     {done ? <Check size={15} /> : <Icon size={15} />}
                   </div>
-                  <span className={`text-[11px] font-medium ${active ? "text-amber-700" : done ? "text-stone-700" : "text-stone-300"}`}>
+                  <span className={`text-[11px] font-medium ${active ? "text-orange-700" : done ? "text-stone-700" : "text-stone-300"}`}>
                     {s.label}
                   </span>
                 </div>
@@ -796,7 +795,7 @@ function Pipeline({ phase, statusText, onStop }: { phase: Phase; statusText: str
         </div>
       ) : (
         <div className="flex items-center gap-2 text-sm text-stone-500">
-          <Sparkles size={15} className="ec-spin-slow text-amber-600" />
+          <Sparkles size={15} className="ec-spin-slow text-orange-600" />
           <span>{statusText || "Thinking…"}</span>
         </div>
       )}
@@ -804,7 +803,7 @@ function Pipeline({ phase, statusText, onStop }: { phase: Phase; statusText: str
       {showRail && (
         <div className="mt-3 flex items-center justify-between border-t border-stone-100 pt-2.5">
           <span className="flex items-center gap-1.5 text-xs text-stone-500">
-            <span className="ec-dot h-1.5 w-1.5 rounded-full bg-amber-500" />
+            <span className="ec-dot h-1.5 w-1.5 rounded-full bg-orange-500" />
             {statusText}
           </span>
           <button onClick={onStop} className="text-xs text-stone-400 hover:text-stone-700">
@@ -859,7 +858,7 @@ function MessageBubble({
             className="ec-fade max-w-full rounded-xl border border-stone-200 shadow-sm"
           />
         ) : (
-          <div className="ec-fade max-w-[95%] border-l-2 border-amber-200 pl-4 font-serif text-[16px] leading-[1.7] text-stone-800">
+          <div className="ec-fade max-w-[95%] border-l-2 border-orange-200 pl-4 font-serif text-[16px] leading-[1.7] text-stone-800">
             {renderWithCitations(m.content, m.sources, hoverCite, setHoverCite)}
           </div>
         )
@@ -889,7 +888,7 @@ function MessageBubble({
             <button
               key={i}
               onClick={() => onFollowup(q)}
-              className="ec-followup rounded-full border border-stone-200 bg-white/70 px-3 py-1.5 text-xs text-stone-600 transition-colors hover:border-amber-400 hover:text-stone-900"
+              className="ec-followup rounded-full border border-stone-200 bg-white/70 px-3 py-1.5 text-xs text-stone-600 transition-colors hover:border-orange-400 hover:text-stone-900"
             >
               {q}
             </button>
@@ -929,7 +928,7 @@ function SourceList({
               onMouseLeave={() => setHoverCite(null)}
               style={{ animationDelay: `${idx * 70}ms` }}
               className={`ec-card ec-glass group relative flex gap-3 rounded-xl border bg-white/80 p-3 transition-all ${
-                lit ? "border-amber-400 shadow-[0_0_0_3px_rgba(245,158,11,0.15)]" : "border-stone-200 hover:border-stone-400"
+                lit ? "border-orange-400 shadow-[0_0_0_3px_rgba(245,158,11,0.15)]" : "border-stone-200 hover:border-stone-400"
               }`}
             >
               <span className="ec-mark mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full text-[11px] font-semibold text-white">
@@ -950,7 +949,7 @@ function SourceList({
                   <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-stone-100">
                     <div
                       className={`h-full rounded-full ${
-                        cred.tier === "high" ? "bg-emerald-500" : cred.tier === "medium" ? "bg-amber-500" : "bg-rose-500"
+                        cred.tier === "high" ? "bg-emerald-500" : cred.tier === "medium" ? "bg-orange-500" : "bg-rose-500"
                       }`}
                       style={{ width: `${cred.score}%` }}
                     />
@@ -969,10 +968,10 @@ function SourceList({
 function CredBadge({ cred }: { cred: { tier: "high" | "medium" | "low"; label: string; score: number; reasons: string[] } }) {
   const styles = {
     high: "bg-emerald-50 text-emerald-700",
-    medium: "bg-amber-50 text-amber-700",
+    medium: "bg-orange-50 text-orange-700",
     low: "bg-rose-50 text-rose-700",
   }[cred.tier];
-  const dot = { high: "bg-emerald-500", medium: "bg-amber-500", low: "bg-rose-500" }[cred.tier];
+  const dot = { high: "bg-emerald-500", medium: "bg-orange-500", low: "bg-rose-500" }[cred.tier];
   return (
     <span
       title={`${cred.label} credibility (${cred.score}/100) — ${cred.reasons.join(", ")}`}
@@ -1010,7 +1009,7 @@ function renderWithCitations(
                 onMouseEnter={() => setHoverCite(id)}
                 onMouseLeave={() => setHoverCite(null)}
                 className={`ec-cite mx-0.5 rounded px-1 align-baseline text-[11px] font-semibold no-underline transition-colors ${
-                  hoverCite === id ? "bg-amber-400 text-white" : "bg-amber-100 text-amber-800"
+                  hoverCite === id ? "bg-orange-400 text-white" : "bg-orange-100 text-orange-800"
                 }`}
               >
                 {match[1]}
@@ -1042,7 +1041,7 @@ function EmptyState({ onPick }: { onPick: (t: string) => void }) {
             key={ex}
             onClick={() => onPick(ex)}
             style={{ animationDelay: `${120 + i * 60}ms` }}
-            className="ec-rise ec-card ec-glass rounded-xl border border-stone-200 bg-white/70 px-4 py-3 text-left font-serif text-[15px] text-stone-700 transition-colors hover:border-amber-400"
+            className="ec-rise ec-card ec-glass rounded-xl border border-stone-200 bg-white/70 px-4 py-3 text-left font-serif text-[15px] text-stone-700 transition-colors hover:border-orange-400"
           >
             {ex}
           </button>
@@ -1053,37 +1052,79 @@ function EmptyState({ onPick }: { onPick: (t: string) => void }) {
 }
 
 /* ───────────── styles ───────────── */
-
 function StyleBlock() {
   return (
     <style>{`
-      .ec-pulse-mic { animation: ecPulse 1.2s ease-in-out infinite; }
-      @keyframes ecPulse { 0%,100%{ box-shadow:0 0 0 4px rgba(245,158,11,.16);} 50%{ box-shadow:0 0 0 7px rgba(245,158,11,.05);} }
-      .ec-root { background:
-        radial-gradient(60% 40% at 15% 0%, rgba(251,191,36,0.10), transparent 60%),
-        radial-gradient(50% 40% at 90% 5%, rgba(244,114,60,0.08), transparent 60%),
-        #faf9f7; }
-      .ec-glass { background: rgba(255,255,255,0.65); backdrop-filter: blur(12px) saturate(140%); -webkit-backdrop-filter: blur(12px) saturate(140%); }
-      .ec-mark { background-image: linear-gradient(135deg,#f59e0b,#d97706,#b45309); }
-      .ec-accent-text { background-image: linear-gradient(120deg,#d97706,#b45309); -webkit-background-clip:text; background-clip:text; color:transparent; }
-      .ec-seg-pill { background-image: linear-gradient(135deg,#f59e0b,#b45309); transition: left .28s cubic-bezier(.22,1,.36,1), width .28s cubic-bezier(.22,1,.36,1); }
-      .ec-input { box-shadow: 0 1px 2px rgba(0,0,0,.04); transition: box-shadow .2s, border-color .2s; }
-      .ec-input:focus-within { border-color:#d97706; box-shadow: 0 0 0 4px rgba(217,119,6,.12); }
-      .ec-send:hover { transform: scale(1.06); }
-      .ec-send:active { transform: scale(.9); }
-      .ec-card { animation: ecCard .45s cubic-bezier(.22,1,.36,1) both; }
-      .ec-card:hover { transform: translateY(-3px); }
-      .ec-rise { animation: ecRise .5s cubic-bezier(.22,1,.36,1) both; }
+      @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&display=swap');
+
+      :root {
+        --bg: #fafafb;
+        --surface: #ffffff;
+        --ink: #14151a;
+        --muted: #6b7280;
+        --border: #ececf1;
+        --border-strong: #dfe0e7;
+        --primary: #4f46e5;
+        --primary-2: #6366f1;
+        --accent: #8b5cf6;
+        --radius: 14px;
+        --shadow-xs: 0 1px 2px rgba(20,21,26,.04);
+        --shadow-sm: 0 2px 6px rgba(20,21,26,.05), 0 1px 2px rgba(20,21,26,.04);
+        --shadow-md: 0 6px 20px rgba(20,21,26,.07), 0 2px 6px rgba(20,21,26,.04);
+        --shadow-lg: 0 16px 44px rgba(20,21,26,.10);
+      }
+
+      .ec-root {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        color: var(--ink);
+        letter-spacing: -0.012em;
+        background:
+          radial-gradient(50% 40% at 0% 0%, rgba(99,102,241,0.05), transparent 60%),
+          radial-gradient(45% 35% at 100% 0%, rgba(139,92,246,0.045), transparent 60%),
+          var(--bg);
+      }
+      /* refined headings — bold, tight, modern (not serif) */
+      .font-serif { font-family: 'Inter', sans-serif !important; font-weight: 700; letter-spacing: -0.03em; }
+
+      /* brand accents */
+      .ec-mark { background-image: linear-gradient(135deg,#6366f1,#4f46e5); box-shadow: 0 2px 8px rgba(79,70,229,.25); }
+      .ec-accent-text { background-image: linear-gradient(120deg,#4f46e5,#7c3aed); -webkit-background-clip:text; background-clip:text; color:transparent; }
+      .ec-seg-pill { background:#fff; box-shadow: var(--shadow-sm); border: 1px solid var(--border); transition: left .28s cubic-bezier(.22,1,.36,1), width .28s cubic-bezier(.22,1,.36,1); }
+
+      /* glass surfaces */
+      .ec-glass { background: rgba(255,255,255,0.78); backdrop-filter: blur(20px) saturate(140%); -webkit-backdrop-filter: blur(20px) saturate(140%); }
+
+      /* composer — the focal point, make it feel crafted */
+      .ec-input { background:#fff; border:1px solid var(--border-strong) !important; border-radius: var(--radius); box-shadow: var(--shadow-md); transition: box-shadow .2s, border-color .2s, transform .2s; }
+      .ec-input:focus-within { border-color: var(--primary) !important; box-shadow: 0 0 0 4px rgba(79,70,229,.12), var(--shadow-md); }
+      .ec-send { box-shadow: 0 3px 10px rgba(79,70,229,.3); }
+      .ec-send:hover { transform: translateY(-1px) scale(1.05); }
+      .ec-send:active { transform: scale(.92); }
+
+      /* cards — crisp borders, layered depth, satisfying hover */
+      .ec-card { animation: ecCard .5s cubic-bezier(.22,1,.36,1) both; border:1px solid var(--border) !important; border-radius: var(--radius) !important; box-shadow: var(--shadow-xs); background:#fff; }
+      .ec-card:hover { transform: translateY(-3px); border-color: var(--border-strong) !important; box-shadow: var(--shadow-lg); }
+      .ec-rise { animation: ecRise .55s cubic-bezier(.22,1,.36,1) both; }
       .ec-fade { animation: ecFade .5s ease both; }
-      @keyframes ecRise { from { opacity:0; transform: translateY(14px);} to { opacity:1; transform:none;} }
-      @keyframes ecCard { from { opacity:0; transform: translateY(10px) scale(.98);} to { opacity:1; transform:none;} }
+      @keyframes ecRise { from { opacity:0; transform: translateY(16px);} to { opacity:1; transform:none;} }
+      @keyframes ecCard { from { opacity:0; transform: translateY(10px) scale(.985);} to { opacity:1; transform:none;} }
       @keyframes ecFade { from { opacity:0;} to { opacity:1;} }
-      .ec-stage-active { background:#fffbeb; box-shadow: 0 0 0 4px rgba(245,158,11,.16); animation: ecPulse 1.4s ease-in-out infinite; }
-      @keyframes ecPulse { 0%,100%{ box-shadow:0 0 0 4px rgba(245,158,11,.16);} 50%{ box-shadow:0 0 0 7px rgba(245,158,11,.05);} }
+
+      /* thinking / status */
+      .ec-stage-active { background:#eef2ff; box-shadow: 0 0 0 4px rgba(99,102,241,.16); animation: ecPulse 1.4s ease-in-out infinite; }
+      .ec-pulse-mic { animation: ecPulse 1.2s ease-in-out infinite; }
+      @keyframes ecPulse { 0%,100%{ box-shadow:0 0 0 4px rgba(99,102,241,.16);} 50%{ box-shadow:0 0 0 8px rgba(99,102,241,.04);} }
       .ec-dot { animation: ecBlink 1s steps(1) infinite; }
       @keyframes ecBlink { 0%,100%{opacity:1;} 50%{opacity:.25;} }
       .ec-spin-slow { animation: ecSpin 2.4s linear infinite; }
       @keyframes ecSpin { to { transform: rotate(360deg);} }
+
+      /* refined scrollbars */
+      * { scrollbar-width: thin; scrollbar-color: #d5d7e0 transparent; }
+      *::-webkit-scrollbar { width: 8px; height: 8px; }
+      *::-webkit-scrollbar-thumb { background:#d5d7e0; border-radius:8px; }
+      *::-webkit-scrollbar-thumb:hover { background:#c2c5d2; }
+
       @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition-duration:.01ms !important; } }
     `}</style>
   );
