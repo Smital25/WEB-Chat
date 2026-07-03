@@ -25,10 +25,12 @@ import {
   FileText,
   Mic, MicOff,
   Image as ImageIcon,
+  ShieldCheck,
+  FileSearch,
 
 } from "lucide-react";
 import type { ChatMessage, Source, StreamEvent, WebMode } from "@/lib/types";
-import { signOut } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 
 const EXAMPLES = [
   "What's the latest in AI this week?",
@@ -62,6 +64,8 @@ function getCred(s: Source) {
 }
 
 export default function Home() {
+  const { data: session } = useSession();
+  const userEmail = session?.user?.email ?? "";
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [mode, setMode] = useState<WebMode>("auto");
@@ -447,6 +451,10 @@ export default function Home() {
   }
 
   const empty = messages.length === 0;
+  const [selectedSourceIdx, setSelectedSourceIdx] = useState<number | null>(null);
+  const latestSourceIdx = messages.map((m, i) => (m.role === "assistant" && m.sources && m.sources.length ? i : -1)).filter((i) => i >= 0).pop() ?? null;
+  const panelIdx = selectedSourceIdx !== null && messages[selectedSourceIdx]?.sources?.length ? selectedSourceIdx : latestSourceIdx;
+  const activeSources = panelIdx !== null ? messages[panelIdx]?.sources : undefined;
   const activeMode = MODES.find((x) => x.id === mode)!;
   const modeIndex = MODES.findIndex((x) => x.id === mode);
 
@@ -478,6 +486,7 @@ export default function Home() {
             <Plus size={15} /> New chat
           </button>
         </div>
+        <div className="px-4 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-400">Recent</div>
         <div className="flex-1 overflow-y-auto px-2 pb-3">
           {chats.length === 0 ? (
             <p className="px-2 py-4 text-xs text-stone-400">No chats yet.</p>
@@ -499,20 +508,35 @@ export default function Home() {
                 <button
                   onClick={() => renameChat(c.id, c.title)}
                   title="Rename"
-                  className="shrink-0 rounded p-1 text-stone-400 opacity-0 transition hover:bg-white hover:text-stone-700 group-hover:opacity-100"
+                  className="shrink-0 rounded-md p-1.5 text-stone-400 transition hover:bg-white hover:text-indigo-600"
                 >
                   <Pencil size={13} />
                 </button>
                 <button
                   onClick={() => deleteChat(c.id)}
                   title="Delete"
-                  className="shrink-0 rounded p-1 text-stone-400 opacity-0 transition hover:bg-white hover:text-rose-600 group-hover:opacity-100"
+                  className="shrink-0 rounded-md p-1.5 text-stone-400 transition hover:bg-white hover:text-rose-600"
                 >
                   <Trash2 size={13} />
                 </button>
               </div>
             ))
           )}
+        </div>
+        {/* profile area */}
+        <div className="border-t border-stone-200/70 p-3">
+          <div className="mb-2 px-1 text-[11px] font-medium text-stone-400">Welcome back</div>
+          <div className="flex items-center gap-2.5 rounded-xl border border-stone-200/70 bg-white/70 p-2.5">
+            <div className="ec-mark grid h-9 w-9 shrink-0 place-items-center rounded-full text-sm font-semibold text-white">
+              {(userEmail || "?").charAt(0).toUpperCase()}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="truncate text-xs font-semibold text-stone-800">{userEmail || "Signed in"}</div>
+              <button onClick={() => signOut({ callbackUrl: "/signin" })} className="text-[11px] text-stone-400 transition-colors hover:text-rose-600">
+                Sign out
+              </button>
+            </div>
+          </div>
         </div>
       </aside>
 
@@ -527,24 +551,18 @@ export default function Home() {
             <h1 className="font-serif text-[19px] font-semibold tracking-tight sm:hidden">
               The Web <span className="ec-accent-text">Reader</span>
             </h1>
+            <span className="hidden text-[11px] uppercase tracking-[0.18em] text-stone-400 sm:block">
+              reads · verifies · cites
+            </span>
             {!empty && (
               <button
                 onClick={exportChatAsMarkdown}
                 title="Export chat as Markdown"
-                className="ml-2 flex items-center gap-1 text-xs text-stone-500 transition-colors hover:text-stone-900"
+                className="ml-auto flex items-center gap-1.5 rounded-lg border border-stone-200 bg-white/70 px-3 py-1.5 text-xs font-medium text-stone-600 transition-colors hover:border-indigo-300 hover:text-stone-900"
               >
                 <Download size={13} /> Export
               </button>
             )}
-            <span className="ml-auto hidden text-[11px] uppercase tracking-[0.18em] text-stone-400 sm:block">
-              reads · verifies · cites
-            </span>
-            <button
-              onClick={() => signOut({ callbackUrl: "/signin" })}
-              className="ml-auto text-xs text-stone-500 transition-colors hover:text-stone-900 sm:ml-4"
-            >
-              Sign out
-            </button>
           </div>
         </header>
 
@@ -558,7 +576,11 @@ export default function Home() {
                 {messages.map((m, i) => {
                   const isLast = i === messages.length - 1;
                   return (
-                    <div key={i} className="ec-rise">
+                    <div
+                      key={i}
+                      className={`ec-rise ${m.role === "assistant" && m.sources && m.sources.length ? "cursor-pointer" : ""}`}
+                      onClick={() => { if (m.role === "assistant" && m.sources && m.sources.length) setSelectedSourceIdx(i); }}
+                    >
                       <MessageBubble
                         m={m}
                         idx={i}
@@ -570,7 +592,7 @@ export default function Home() {
                         onRegenerate={regenerate}
                         onFollowup={send}
                       />
-                      {isLast && busy && <Pipeline phase={phase} statusText={statusText} onStop={stop} />}
+                      {isLast && busy && <div className="lg:hidden"><Pipeline phase={phase} statusText={statusText} onStop={stop} /></div>}
                     </div>
                   );
                 })}
@@ -727,7 +749,7 @@ export default function Home() {
               <div className="ec-seg relative flex rounded-full bg-stone-100 p-0.5">
                 <span
                   className="ec-seg-pill absolute top-0.5 bottom-0.5 rounded-full"
-                  style={{ left: `calc(${modeIndex} * (100% / 3) + 2px)`, width: "calc(100% / 3 - 4px)" }}
+                  style={{ left: `calc(${modeIndex} * (100% / 2) + 2px)`, width: "calc(100% / 2 - 4px)" }}
                 />
                 {MODES.map((mo) => (
                   <button
@@ -748,6 +770,41 @@ export default function Home() {
           </div>
         </div>
       </div>
+
+      {/* ── research / sources panel (right) ── */}
+      <aside className="ec-glass hidden w-96 shrink-0 flex-col border-l border-stone-200/70 lg:flex">
+        <div className="flex items-center gap-2 border-b border-stone-200/70 px-5 py-[13px]">
+          <Search size={14} className="text-indigo-500" />
+          <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Research &amp; Sources</span>
+        </div>
+        {activeSources && activeSources.length > 0 && !busy && (
+          <div className="grid grid-cols-2 gap-2 border-b border-stone-200/70 px-4 py-3">
+            <div className="ec-glass rounded-xl border border-stone-200/70 p-3">
+              <div className="text-lg font-semibold text-stone-900">{activeSources.length}</div>
+              <div className="text-[10px] uppercase tracking-wider text-stone-400">Sources read</div>
+            </div>
+            <div className="ec-glass rounded-xl border border-stone-200/70 p-3">
+              <div className="text-lg font-semibold text-stone-900">{Math.round(activeSources.reduce((a, x) => a + (getCred(x)?.score ?? 0), 0) / activeSources.length)}<span className="text-xs text-stone-400">/100</span></div>
+              <div className="text-[10px] uppercase tracking-wider text-stone-400">Avg credibility</div>
+            </div>
+          </div>
+        )}
+        <div className="flex-1 overflow-y-auto p-4">
+          {busy ? (
+            <Pipeline phase={phase} statusText={statusText} onStop={stop} />
+          ) : activeSources && activeSources.length > 0 ? (
+            <SourceList sources={activeSources} hoverCite={hoverCite} setHoverCite={setHoverCite} />
+          ) : (
+            <div className="flex h-full flex-col items-center justify-center px-6 text-center text-stone-400">
+              <div className="ec-glass mb-4 grid h-14 w-14 place-items-center rounded-2xl border border-stone-200/70">
+                <BookOpen size={22} className="opacity-50" />
+              </div>
+              <p className="text-sm font-medium text-stone-500">Sources appear here</p>
+              <p className="mt-1 text-xs">As I search and read the web, the sites I use and their credibility scores will show up in this panel.</p>
+            </div>
+          )}
+        </div>
+      </aside>
     </div>
   );
 }
@@ -880,7 +937,9 @@ function MessageBubble({
         </div>
       )}
       {m.sources && m.sources.length > 0 && (
-        <SourceList sources={m.sources} hoverCite={hoverCite} setHoverCite={setHoverCite} />
+        <div className="lg:hidden">
+          <SourceList sources={m.sources} hoverCite={hoverCite} setHoverCite={setHoverCite} />
+        </div>
       )}
       {isLastAssistant && m.followups && m.followups.length > 0 && (
         <div className="flex flex-wrap gap-2 pl-4">
@@ -1025,27 +1084,63 @@ function renderWithCitations(
 
 /* ───────────── empty state ───────────── */
 
+const FEATURES = [
+  { icon: Globe, title: "Reads the web", desc: "Searches and reads full pages, not just snippets." },
+  { icon: ShieldCheck, title: "Scores credibility", desc: "Weighs every source and flags low-trust ones." },
+  { icon: BookOpen, title: "Traceable citations", desc: "Every claim links back to a real source." },
+  { icon: FileSearch, title: "Files, URLs & voice", desc: "Ask about a PDF, a page, or just speak." },
+];
+
 function EmptyState({ onPick }: { onPick: (t: string) => void }) {
   return (
-    <div className="pt-20 text-center">
-      <h2 className="ec-rise font-serif text-4xl font-semibold leading-tight text-stone-900">
-        Ask, and it <span className="ec-accent-text">reads the web</span>
-        <br /> to answer you.
-      </h2>
-      <p className="ec-rise mx-auto mt-4 max-w-md text-[15px] leading-relaxed text-stone-500" style={{ animationDelay: "80ms" }}>
-        It searches, reads full pages, weighs each source, and answers with citations you can trace.
-      </p>
-      <div className="mx-auto mt-8 grid max-w-lg gap-2.5 sm:grid-cols-2">
-        {EXAMPLES.map((ex, i) => (
-          <button
-            key={ex}
-            onClick={() => onPick(ex)}
-            style={{ animationDelay: `${120 + i * 60}ms` }}
-            className="ec-rise ec-card ec-glass rounded-xl border border-stone-200 bg-white/70 px-4 py-3 text-left font-serif text-[15px] text-stone-700 transition-colors hover:border-orange-400"
-          >
-            {ex}
-          </button>
-        ))}
+    <div className="pt-16">
+      <div className="text-center">
+        <h2 className="ec-rise font-serif text-4xl font-semibold leading-tight text-stone-900">
+          Ask, and it <span className="ec-accent-text">reads the web</span>
+          <br /> to answer you.
+        </h2>
+        <p className="ec-rise mx-auto mt-4 max-w-md text-[15px] leading-relaxed text-stone-500" style={{ animationDelay: "80ms" }}>
+          It searches, reads full pages, weighs each source, and answers with citations you can trace.
+        </p>
+      </div>
+
+      {/* premium feature cards */}
+      <div className="mx-auto mt-10 grid max-w-2xl gap-3 sm:grid-cols-2">
+        {FEATURES.map((f, i) => {
+          const Icon = f.icon;
+          return (
+            <div
+              key={f.title}
+              style={{ animationDelay: `${120 + i * 70}ms` }}
+              className="ec-rise ec-card ec-glass flex items-start gap-3 rounded-2xl border border-stone-200 bg-white/70 p-4 text-left"
+            >
+              <span className="ec-mark grid h-9 w-9 shrink-0 place-items-center rounded-xl text-white">
+                <Icon size={17} />
+              </span>
+              <div>
+                <div className="text-sm font-semibold text-stone-900">{f.title}</div>
+                <div className="mt-0.5 text-xs leading-relaxed text-stone-500">{f.desc}</div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* example prompts */}
+      <div className="mx-auto mt-8 max-w-2xl">
+        <div className="mb-2.5 text-center text-[11px] font-semibold uppercase tracking-[0.16em] text-stone-400">Try asking</div>
+        <div className="grid gap-2.5 sm:grid-cols-2">
+          {EXAMPLES.map((ex, i) => (
+            <button
+              key={ex}
+              onClick={() => onPick(ex)}
+              style={{ animationDelay: `${380 + i * 60}ms` }}
+              className="ec-rise ec-card ec-glass rounded-xl border border-stone-200 bg-white/70 px-4 py-3 text-left font-serif text-[15px] text-stone-700 transition-colors hover:border-indigo-400"
+            >
+              {ex}
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );
