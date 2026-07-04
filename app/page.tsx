@@ -68,6 +68,8 @@ export default function Home() {
   const userEmail = session?.user?.email ?? "";
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const [chatSearch, setChatSearch] = useState("");
+  const [sourceSearch, setSourceSearch] = useState("");
   const [mode, setMode] = useState<WebMode>("auto");
   const [busy, setBusy] = useState(false);
   const [phase, setPhase] = useState<Phase>("idle");
@@ -486,12 +488,26 @@ export default function Home() {
             <Plus size={15} /> New chat
           </button>
         </div>
+        <div className="px-3 pb-2">
+          <div className="flex items-center gap-2 rounded-lg border border-stone-200 bg-white/70 px-2.5 py-1.5">
+            <Search size={13} className="shrink-0 text-stone-400" />
+            <input
+              value={chatSearch}
+              onChange={(e) => setChatSearch(e.target.value)}
+              placeholder="Search chats…"
+              className="w-full bg-transparent text-xs outline-none placeholder:text-stone-400"
+            />
+            {chatSearch && (
+              <button onClick={() => setChatSearch("")} className="shrink-0 text-stone-400 hover:text-stone-700"><X size={12} /></button>
+            )}
+          </div>
+        </div>
         <div className="px-4 pb-1 pt-1 text-[11px] font-semibold uppercase tracking-[0.14em] text-stone-400">Recent</div>
         <div className="flex-1 overflow-y-auto px-2 pb-3">
-          {chats.length === 0 ? (
-            <p className="px-2 py-4 text-xs text-stone-400">No chats yet.</p>
+          {chats.filter((c) => c.title.toLowerCase().includes(chatSearch.toLowerCase())).length === 0 ? (
+            <p className="px-2 py-4 text-xs text-stone-400">{chatSearch ? "No chats match." : "No chats yet."}</p>
           ) : (
-            chats.map((c) => (
+            chats.filter((c) => c.title.toLowerCase().includes(chatSearch.toLowerCase())).map((c) => (
               <div
                 key={c.id}
                 className={`group mb-1 flex items-center gap-1 rounded-lg pr-1 text-sm transition-colors ${
@@ -591,6 +607,7 @@ export default function Home() {
                         copied={copiedIdx === i}
                         onRegenerate={regenerate}
                         onFollowup={send}
+                        onEdit={(text: string) => setInput(text)}
                       />
                       {isLast && busy && <div className="lg:hidden"><Pipeline phase={phase} statusText={statusText} onStop={stop} /></div>}
                     </div>
@@ -789,11 +806,34 @@ export default function Home() {
             </div>
           </div>
         )}
+        {activeSources && activeSources.length > 0 && !busy && (
+          <div className="px-4 pb-2">
+            <div className="flex items-center gap-2 rounded-lg border border-stone-200 bg-white/70 px-2.5 py-1.5">
+              <Search size={13} className="shrink-0 text-stone-400" />
+              <input
+                value={sourceSearch}
+                onChange={(e) => setSourceSearch(e.target.value)}
+                placeholder="Search sources…"
+                className="w-full bg-transparent text-xs outline-none placeholder:text-stone-400"
+              />
+              {sourceSearch && (
+                <button onClick={() => setSourceSearch("")} className="shrink-0 text-stone-400 hover:text-stone-700"><X size={12} /></button>
+              )}
+            </div>
+          </div>
+        )}
         <div className="flex-1 overflow-y-auto p-4">
           {busy ? (
             <Pipeline phase={phase} statusText={statusText} onStop={stop} />
           ) : activeSources && activeSources.length > 0 ? (
-            <SourceList sources={activeSources} hoverCite={hoverCite} setHoverCite={setHoverCite} />
+            <SourceList
+              sources={activeSources.filter((s) => {
+                const q = sourceSearch.toLowerCase();
+                return !q || s.title.toLowerCase().includes(q) || s.domain.toLowerCase().includes(q) || (s.snippet ?? "").toLowerCase().includes(q);
+              })}
+              hoverCite={hoverCite}
+              setHoverCite={setHoverCite}
+            />
           ) : (
             <div className="flex h-full flex-col items-center justify-center px-6 text-center text-stone-400">
               <div className="ec-glass mb-4 grid h-14 w-14 place-items-center rounded-2xl border border-stone-200/70">
@@ -884,6 +924,7 @@ function MessageBubble({
   copied,
   onRegenerate,
   onFollowup,
+  onEdit,
 }: {
   m: ChatMessage;
   idx: number;
@@ -894,10 +935,20 @@ function MessageBubble({
   copied: boolean;
   onRegenerate: () => void;
   onFollowup: (text: string) => void;
+  onEdit?: (text: string) => void;
 }) {
   if (m.role === "user") {
     return (
-      <div className="flex justify-end">
+      <div className="group flex items-center justify-end gap-2">
+        {onEdit && (
+          <button
+            onClick={() => onEdit(m.content)}
+            title="Edit this message"
+            className="shrink-0 rounded-md p-1.5 text-stone-300 opacity-0 transition hover:bg-stone-100 hover:text-stone-600 group-hover:opacity-100"
+          >
+            <Pencil size={13} />
+          </button>
+        )}
         <div className="max-w-[85%] rounded-2xl rounded-br-md bg-stone-900 px-4 py-2.5 text-[15px] text-stone-50">
           {m.content}
         </div>
@@ -1102,6 +1153,12 @@ function renderWithCitations(
   const lines = content.split("\n");
   const blocks: React.ReactNode[] = [];
   let listBuffer: { ordered: boolean; items: string[] } | null = null;
+  let tableBuffer: string[] | null = null;
+
+  const isTableRow = (l: string) => /^\s*\|(.+)\|\s*$/.test(l);
+  const isTableSep = (l: string) => /^\s*\|?[\s:|-]+\|?\s*$/.test(l) && l.includes("-");
+  const splitRow = (l: string) =>
+    l.trim().replace(/^\||\|$/g, "").split("|").map((c) => c.trim());
 
   const flushList = (key: string) => {
     if (!listBuffer) return;
@@ -1125,8 +1182,53 @@ function renderWithCitations(
     listBuffer = null;
   };
 
+  const flushTable = (key: string) => {
+    if (!tableBuffer || tableBuffer.length === 0) { tableBuffer = null; return; }
+    const rows = tableBuffer.filter((r) => !isTableSep(r)).map(splitRow);
+    tableBuffer = null;
+    if (rows.length === 0) return;
+    const [head, ...body] = rows;
+    blocks.push(
+      <div key={key} className="my-3 overflow-x-auto rounded-xl border border-stone-200">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="bg-stone-50">
+              {head.map((c, j) => (
+                <th key={j} className="border-b border-stone-200 px-3 py-2 text-left font-semibold text-stone-700">
+                  {renderInline(c, `${key}-h-${j}`, sources, byId, hoverCite, setHoverCite)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {body.map((row, r) => (
+              <tr key={r} className="odd:bg-white even:bg-stone-50/40">
+                {row.map((c, j) => (
+                  <td key={j} className="border-b border-stone-100 px-3 py-2 align-top text-stone-700">
+                    {renderInline(c, `${key}-r${r}-${j}`, sources, byId, hoverCite, setHoverCite)}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
   lines.forEach((line, i) => {
     const key = `ln-${i}`;
+
+    // table rows: buffer consecutive pipe rows
+    if (isTableRow(line)) {
+      flushList(`${key}-pre`);
+      if (!tableBuffer) tableBuffer = [];
+      tableBuffer.push(line);
+      return;
+    } else if (tableBuffer) {
+      flushTable(`${key}-table`);
+    }
+
     const bullet = line.match(/^\s*[-*]\s+(.*)$/);
     const numbered = line.match(/^\s*\d+\.\s+(.*)$/);
     const header = line.match(/^(#{1,3})\s+(.*)$/);
@@ -1166,6 +1268,7 @@ function renderWithCitations(
     );
   });
   flushList("final");
+  flushTable("final-table");
 
   return <div className="ec-md leading-relaxed">{blocks}</div>;
 }

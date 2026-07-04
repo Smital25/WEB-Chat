@@ -1,4 +1,4 @@
-import { MODEL, SYSTEM_PROMPT, createWithFallback } from "@/lib/llm";
+import { llm, MODEL, SYSTEM_PROMPT } from "@/lib/llm";
 import { searchWeb } from "@/lib/search";
 import { readSources } from "@/lib/scrape";
 import type { ChatMessage, Source, StreamEvent, WebMode } from "@/lib/types";
@@ -79,7 +79,7 @@ class FetchUrlError extends Error {}
 async function generateFollowups(question: string, answer: string): Promise<string[]> {
   if (!answer || answer.trim().length < 20) return [];
   try {
-    const resp = await createWithFallback({
+    const resp = await llm.chat.completions.create({
       model: MODEL,
       messages: [
         {
@@ -172,8 +172,12 @@ export async function POST(req: Request) {
         file?: { name: string; text: string } | null;
       };
 
-  // history the model sees (drop our extra `sources` field)
-  const history: ChatCompletionMessageParam[] = messages.map((m) => ({
+  // history the model sees (drop our extra `sources` field).
+  // Cap to the most recent turns so old, unrelated topics in a long chat
+  // don't bleed into a new answer. Keeps the last 8 messages (~4 exchanges).
+  const HISTORY_LIMIT = 8;
+  const recentMessages = messages.slice(-HISTORY_LIMIT);
+  const history: ChatCompletionMessageParam[] = recentMessages.map((m) => ({
     role: m.role,
     content:
       m.content.startsWith("![") && m.content.includes("(data:image")
@@ -210,7 +214,7 @@ export async function POST(req: Request) {
                   `3. If the file doesn't answer the question, say so clearly.`,
               },
             ];
-            const answer = await createWithFallback({ model: MODEL, messages: finalMessages, stream: true });
+            const answer = await llm.chat.completions.create({ model: MODEL, messages: finalMessages, stream: true });
             let full = "";
             for await (const chunk of answer) {
               const delta = chunk.choices[0]?.delta?.content;
@@ -257,7 +261,7 @@ export async function POST(req: Request) {
             },
           ];
 
-          const answer = await createWithFallback({
+          const answer = await llm.chat.completions.create({
             model: MODEL,
             messages: finalMessages,
             stream: true,
@@ -286,7 +290,7 @@ export async function POST(req: Request) {
           // auto: let the model decide via tool calling (one non-streaming call)
           let decision;
           try {
-            decision = await createWithFallback({
+            decision = await llm.chat.completions.create({
               model: MODEL,
               messages: [{ role: "system", content: SYSTEM_PROMPT }, ...history],
               tools: [searchTool],
@@ -294,7 +298,7 @@ export async function POST(req: Request) {
             });
           } catch {
             // model couldn't format a tool call — answer directly, no search
-            const resp = await createWithFallback({
+            const resp = await llm.chat.completions.create({
               model: MODEL,
               messages: [{ role: "system", content: SYSTEM_PROMPT }, ...history],
             });
@@ -328,7 +332,7 @@ export async function POST(req: Request) {
 
         // ---- no-search path (mode "off", or nothing to search) ----
         if (!searchQuery) {
-          const resp = await createWithFallback({
+          const resp = await llm.chat.completions.create({
             model: MODEL,
             messages: [
               { role: "system", content: SYSTEM_PROMPT },
@@ -406,7 +410,7 @@ export async function POST(req: Request) {
         // sending. We can only validate references once we see the whole text,
         // so for a data-checking bot we trade token-by-token streaming for
         // correctness on the web path.
-        const answer = await createWithFallback({
+        const answer = await llm.chat.completions.create({
           model: MODEL,
           messages: finalMessages,
           stream: true,
