@@ -1042,44 +1042,132 @@ function CredBadge({ cred }: { cred: { tier: "high" | "medium" | "low"; label: s
   );
 }
 
+function renderInline(
+  text: string,
+  keyPrefix: string,
+  sources: Source[] | undefined,
+  byId: Map<number, Source>,
+  hoverCite: number | null,
+  setHoverCite: (n: number | null) => void
+): React.ReactNode[] {
+  const tokens = text.split(/(\[\d+\]|\*\*[^*]+\*\*|\*[^*]+\*|`[^`]+`)/g).filter(Boolean);
+  return tokens.map((tok, i) => {
+    const key = `${keyPrefix}-${i}`;
+    const cite = tok.match(/^\[(\d+)\]$/);
+    if (cite && sources) {
+      const id = Number(cite[1]);
+      const src = byId.get(id);
+      if (src) {
+        return (
+          <a
+            key={key}
+            href={src.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            onMouseEnter={() => setHoverCite(id)}
+            onMouseLeave={() => setHoverCite(null)}
+            className={`ec-cite mx-0.5 rounded px-1 align-baseline text-[11px] font-semibold no-underline transition-colors ${
+              hoverCite === id ? "bg-orange-400 text-white" : "bg-orange-100 text-orange-800"
+            }`}
+          >
+            {cite[1]}
+          </a>
+        );
+      }
+    }
+    if (/^\*\*[^*]+\*\*$/.test(tok)) {
+      return <strong key={key} className="font-semibold text-stone-900">{tok.slice(2, -2)}</strong>;
+    }
+    if (/^\*[^*]+\*$/.test(tok)) {
+      return <em key={key}>{tok.slice(1, -1)}</em>;
+    }
+    if (/^`[^`]+`$/.test(tok)) {
+      return (
+        <code key={key} className="rounded bg-stone-100 px-1.5 py-0.5 font-mono text-[13px] text-stone-800">
+          {tok.slice(1, -1)}
+        </code>
+      );
+    }
+    return <span key={key}>{tok}</span>;
+  });
+}
+
 function renderWithCitations(
   content: string,
   sources: Source[] | undefined,
   hoverCite: number | null,
   setHoverCite: (n: number | null) => void
 ) {
-  if (!sources || sources.length === 0) return <span className="whitespace-pre-wrap">{content}</span>;
-  const byId = new Map(sources.map((s) => [s.id, s]));
-  const parts = content.split(/(\[\d+\])/g);
-  return (
-    <span className="whitespace-pre-wrap">
-      {parts.map((part, i) => {
-        const match = part.match(/^\[(\d+)\]$/);
-        if (match) {
-          const id = Number(match[1]);
-          const src = byId.get(id);
-          if (src) {
-            return (
-              <a
-                key={i}
-                href={src.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                onMouseEnter={() => setHoverCite(id)}
-                onMouseLeave={() => setHoverCite(null)}
-                className={`ec-cite mx-0.5 rounded px-1 align-baseline text-[11px] font-semibold no-underline transition-colors ${
-                  hoverCite === id ? "bg-orange-400 text-white" : "bg-orange-100 text-orange-800"
-                }`}
-              >
-                {match[1]}
-              </a>
-            );
-          }
-        }
-        return <span key={i}>{part}</span>;
-      })}
-    </span>
-  );
+  const byId = new Map((sources ?? []).map((s) => [s.id, s]));
+  const lines = content.split("\n");
+  const blocks: React.ReactNode[] = [];
+  let listBuffer: { ordered: boolean; items: string[] } | null = null;
+
+  const flushList = (key: string) => {
+    if (!listBuffer) return;
+    const items = listBuffer.items;
+    const ordered = listBuffer.ordered;
+    blocks.push(
+      ordered ? (
+        <ol key={key} className="my-2 ml-5 list-decimal space-y-1">
+          {items.map((it, j) => (
+            <li key={j} className="pl-1">{renderInline(it, `${key}-${j}`, sources, byId, hoverCite, setHoverCite)}</li>
+          ))}
+        </ol>
+      ) : (
+        <ul key={key} className="my-2 ml-5 list-disc space-y-1">
+          {items.map((it, j) => (
+            <li key={j} className="pl-1">{renderInline(it, `${key}-${j}`, sources, byId, hoverCite, setHoverCite)}</li>
+          ))}
+        </ul>
+      )
+    );
+    listBuffer = null;
+  };
+
+  lines.forEach((line, i) => {
+    const key = `ln-${i}`;
+    const bullet = line.match(/^\s*[-*]\s+(.*)$/);
+    const numbered = line.match(/^\s*\d+\.\s+(.*)$/);
+    const header = line.match(/^(#{1,3})\s+(.*)$/);
+
+    if (bullet) {
+      if (listBuffer && listBuffer.ordered) flushList(`${key}-pre`);
+      if (!listBuffer) listBuffer = { ordered: false, items: [] };
+      listBuffer.items.push(bullet[1]);
+      return;
+    }
+    if (numbered) {
+      if (listBuffer && !listBuffer.ordered) flushList(`${key}-pre`);
+      if (!listBuffer) listBuffer = { ordered: true, items: [] };
+      listBuffer.items.push(numbered[1]);
+      return;
+    }
+    flushList(`${key}-flush`);
+
+    if (header) {
+      const level = header[1].length;
+      const cls = level === 1 ? "text-lg font-semibold" : level === 2 ? "text-base font-semibold" : "text-sm font-semibold";
+      blocks.push(
+        <div key={key} className={`mt-3 mb-1 ${cls} text-stone-900`}>
+          {renderInline(header[2], key, sources, byId, hoverCite, setHoverCite)}
+        </div>
+      );
+      return;
+    }
+    if (line.trim() === "") {
+      blocks.push(<div key={key} className="h-2" />);
+      return;
+    }
+    blocks.push(
+      <p key={key} className="my-0.5">
+        {renderInline(line, key, sources, byId, hoverCite, setHoverCite)}
+      </p>
+    );
+  });
+  flushList("final");
+
+  return <div className="ec-md leading-relaxed">{blocks}</div>;
 }
 
 /* ───────────── empty state ───────────── */

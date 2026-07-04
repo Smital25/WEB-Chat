@@ -1,4 +1,4 @@
-import { llm, MODEL, SYSTEM_PROMPT } from "@/lib/llm";
+import { MODEL, SYSTEM_PROMPT, createWithFallback } from "@/lib/llm";
 import { searchWeb } from "@/lib/search";
 import { readSources } from "@/lib/scrape";
 import type { ChatMessage, Source, StreamEvent, WebMode } from "@/lib/types";
@@ -79,7 +79,7 @@ class FetchUrlError extends Error {}
 async function generateFollowups(question: string, answer: string): Promise<string[]> {
   if (!answer || answer.trim().length < 20) return [];
   try {
-    const resp = await llm.chat.completions.create({
+    const resp = await createWithFallback({
       model: MODEL,
       messages: [
         {
@@ -210,7 +210,7 @@ export async function POST(req: Request) {
                   `3. If the file doesn't answer the question, say so clearly.`,
               },
             ];
-            const answer = await llm.chat.completions.create({ model: MODEL, messages: finalMessages, stream: true });
+            const answer = await createWithFallback({ model: MODEL, messages: finalMessages, stream: true });
             let full = "";
             for await (const chunk of answer) {
               const delta = chunk.choices[0]?.delta?.content;
@@ -257,7 +257,7 @@ export async function POST(req: Request) {
             },
           ];
 
-          const answer = await llm.chat.completions.create({
+          const answer = await createWithFallback({
             model: MODEL,
             messages: finalMessages,
             stream: true,
@@ -286,7 +286,7 @@ export async function POST(req: Request) {
           // auto: let the model decide via tool calling (one non-streaming call)
           let decision;
           try {
-            decision = await llm.chat.completions.create({
+            decision = await createWithFallback({
               model: MODEL,
               messages: [{ role: "system", content: SYSTEM_PROMPT }, ...history],
               tools: [searchTool],
@@ -294,7 +294,7 @@ export async function POST(req: Request) {
             });
           } catch {
             // model couldn't format a tool call — answer directly, no search
-            const resp = await llm.chat.completions.create({
+            const resp = await createWithFallback({
               model: MODEL,
               messages: [{ role: "system", content: SYSTEM_PROMPT }, ...history],
             });
@@ -328,7 +328,7 @@ export async function POST(req: Request) {
 
         // ---- no-search path (mode "off", or nothing to search) ----
         if (!searchQuery) {
-          const resp = await llm.chat.completions.create({
+          const resp = await createWithFallback({
             model: MODEL,
             messages: [
               { role: "system", content: SYSTEM_PROMPT },
@@ -370,6 +370,18 @@ export async function POST(req: Request) {
         const context = await readSources(searchQuery, sources);
 
         send({ type: "status", status: "writing" });
+
+        // ---- credibility enforcement: tell the model how trustworthy each source is ----
+        const credLines = sources
+          .map((s) => {
+            const c = (s as { credibility?: { label: string; score: number } }).credibility;
+            return c ? `[${s.id}] ${s.domain} — ${c.label} credibility (${c.score}/100)` : `[${s.id}] ${s.domain}`;
+          })
+          .join("\n");
+        const lowTrust = sources.filter(
+          (s) => (s as { credibility?: { tier: string } }).credibility?.tier === "low"
+        );
+
         const finalMessages: ChatCompletionMessageParam[] = [
           { role: "system", content: SYSTEM_PROMPT },
           ...history,
@@ -378,13 +390,15 @@ export async function POST(req: Request) {
             content:
               `Web results are provided below. Base your answer ONLY on them.\n\n` +
               `${context}\n\n` +
+              `SOURCE CREDIBILITY (assessed independently):\n${credLines}\n\n` +
               `RULES:\n` +
               `1. Cite sources ONLY with the markers [1], [2], ... matching the numbered sources above. NEVER write out a URL yourself and never invent a source.\n` +
               `2. State a number, date, or statistic ONLY if it literally appears in the sources, quoted EXACTLY — same digits and unit (if a source says "$300 million", never write "$3 billion"). Never round, scale, or convert.\n` +
               `3. If a fact is not in the sources, write "not stated in the sources".\n` +
               `4. If the sources above do NOT actually address the user's question, say clearly that the sources don't cover it — do NOT summarise unrelated material to fill space.\n` +
               `5. Use only the sources, not your own memory.\n` +
-              `6. If sources disagree, say so and prefer the most authoritative one. Do not change your answer just because the user pushes back.`,
+              `6. If sources disagree, say so and prefer the most authoritative one. Do not change your answer just because the user pushes back.\n` +
+              `7. CREDIBILITY: Prefer High-credibility sources. When High and Low sources conflict, trust the High one. If a key claim rests ONLY on a Low-credibility source, you MUST flag it inline, e.g. "(source [4] is low-credibility)". Do not present a Low-credibility claim as established fact.`,
           },
         ];
 
@@ -392,7 +406,7 @@ export async function POST(req: Request) {
         // sending. We can only validate references once we see the whole text,
         // so for a data-checking bot we trade token-by-token streaming for
         // correctness on the web path.
-        const answer = await llm.chat.completions.create({
+        const answer = await createWithFallback({
           model: MODEL,
           messages: finalMessages,
           stream: true,
