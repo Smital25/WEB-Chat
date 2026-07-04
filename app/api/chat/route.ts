@@ -1,4 +1,4 @@
-import { llm, MODEL, SYSTEM_PROMPT } from "@/lib/llm";
+import { MODEL, SYSTEM_PROMPT, createWithFallback } from "@/lib/llm";
 import { searchWeb } from "@/lib/search";
 import { readSources } from "@/lib/scrape";
 import type { ChatMessage, Source, StreamEvent, WebMode } from "@/lib/types";
@@ -79,7 +79,7 @@ class FetchUrlError extends Error {}
 async function generateFollowups(question: string, answer: string): Promise<string[]> {
   if (!answer || answer.trim().length < 20) return [];
   try {
-    const resp = await llm.chat.completions.create({
+    const resp = await createWithFallback({
       model: MODEL,
       messages: [
         {
@@ -105,6 +105,29 @@ async function generateFollowups(question: string, answer: string): Promise<stri
   }
 }
 
+// ── SSRF guard ─────────────────────────────────────────────────────
+// Block requests to localhost, private, link-local, and internal-only
+// hosts so a user-supplied URL can't be used to probe our own network
+// or reach cloud metadata endpoints (e.g. 169.254.169.254).
+function isBlockedHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/\.$/, "");
+  if (h === "localhost" || h.endsWith(".localhost") || h.endsWith(".internal") || h.endsWith(".local")) return true;
+  // IPv6 loopback / link-local / unique-local
+  if (h === "::1" || h === "[::1]" || h.startsWith("fe80") || h.startsWith("fc") || h.startsWith("fd")) return true;
+  // IPv4 literals: block private / loopback / link-local / metadata ranges
+  const m = h.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (m) {
+    const [a, b] = [Number(m[1]), Number(m[2])];
+    if (a === 127) return true;                 // 127.0.0.0/8 loopback
+    if (a === 10) return true;                  // 10.0.0.0/8 private
+    if (a === 192 && b === 168) return true;    // 192.168.0.0/16 private
+    if (a === 172 && b >= 16 && b <= 31) return true; // 172.16.0.0/12 private
+    if (a === 169 && b === 254) return true;    // 169.254.0.0/16 link-local + cloud metadata
+    if (a === 0) return true;                    // 0.0.0.0/8
+  }
+  return false;
+}
+
 async function fetchUrlAsSource(rawUrl: string): Promise<{ source: Source; text: string }> {
   let parsed: URL;
   try {
@@ -114,6 +137,9 @@ async function fetchUrlAsSource(rawUrl: string): Promise<{ source: Source; text:
   }
   if (!/^https?:$/.test(parsed.protocol)) {
     throw new FetchUrlError("Only http(s) URLs are supported.");
+  }
+  if (isBlockedHost(parsed.hostname)) {
+    throw new FetchUrlError("That address isn't allowed (local or internal hosts are blocked for security).");
   }
 
   const res = await fetch(parsed.toString(), {
@@ -214,7 +240,7 @@ export async function POST(req: Request) {
                   `3. If the file doesn't answer the question, say so clearly.`,
               },
             ];
-            const answer = await llm.chat.completions.create({ model: MODEL, messages: finalMessages, stream: true });
+            const answer = await createWithFallback({ model: MODEL, messages: finalMessages, stream: true });
             let full = "";
             for await (const chunk of answer) {
               const delta = chunk.choices[0]?.delta?.content;
@@ -261,7 +287,7 @@ export async function POST(req: Request) {
             },
           ];
 
-          const answer = await llm.chat.completions.create({
+          const answer = await createWithFallback({
             model: MODEL,
             messages: finalMessages,
             stream: true,
@@ -290,7 +316,7 @@ export async function POST(req: Request) {
           // auto: let the model decide via tool calling (one non-streaming call)
           let decision;
           try {
-            decision = await llm.chat.completions.create({
+            decision = await createWithFallback({
               model: MODEL,
               messages: [{ role: "system", content: SYSTEM_PROMPT }, ...history],
               tools: [searchTool],
@@ -298,7 +324,7 @@ export async function POST(req: Request) {
             });
           } catch {
             // model couldn't format a tool call — answer directly, no search
-            const resp = await llm.chat.completions.create({
+            const resp = await createWithFallback({
               model: MODEL,
               messages: [{ role: "system", content: SYSTEM_PROMPT }, ...history],
             });
@@ -332,7 +358,7 @@ export async function POST(req: Request) {
 
         // ---- no-search path (mode "off", or nothing to search) ----
         if (!searchQuery) {
-          const resp = await llm.chat.completions.create({
+          const resp = await createWithFallback({
             model: MODEL,
             messages: [
               { role: "system", content: SYSTEM_PROMPT },
@@ -410,7 +436,7 @@ export async function POST(req: Request) {
         // sending. We can only validate references once we see the whole text,
         // so for a data-checking bot we trade token-by-token streaming for
         // correctness on the web path.
-        const answer = await llm.chat.completions.create({
+        const answer = await createWithFallback({
           model: MODEL,
           messages: finalMessages,
           stream: true,
